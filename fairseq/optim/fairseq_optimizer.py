@@ -69,7 +69,10 @@ class FairseqOptimizer(object):
     def set_lr(self, lr):
         """Set the learning rate."""
         for param_group in self.param_groups:
-            param_group["lr"] = lr
+            if 'lr_factor' not in param_group:
+                param_group["lr"] = lr
+            else:
+                param_group["lr"] = lr * param_group["lr_factor"]
 
     def state_dict(self):
         """Return the optimizer's state dict."""

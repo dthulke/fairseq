@@ -10,6 +10,7 @@ Train a network across multiple GPUs.
 import contextlib
 import logging
 import os
+import re
 import sys
 import time
 from argparse import Namespace
@@ -32,6 +33,39 @@ from fairseq.utils import safe_hasattr
 
 
 logger = logging.getLogger(__name__)
+
+
+
+def get_decayed_param_groups(named_parameters,
+                             num_layers,
+                             lr,
+                             lr_decay):
+  lr_factors = []
+  for k, v in named_parameters:
+      if not v.requires_grad:
+        continue
+      param = {
+          'params': v,
+      }
+      if lr_decay and lr_decay != 1:
+        factor = 1
+        if 'sentence_encoder.layers' in k:
+          layer = int(re.search(r'.layers.(\d+)',k).group(1))
+          factor = lr_decay**(num_layers-layer)
+
+        elif 'embed_tokens.weight' in k or 'embed_positions' in k or 'layernorm_embedding' in k:
+          layer = 0
+          factor = lr_decay**(num_layers-layer)
+
+        if isinstance(lr, float):
+            param['lr'] = lr * factor
+        else:
+            assert len(lr) == 1, 'TODO how to support multiple lrs?'
+            param['lr'] = lr[0] * factor
+        param['lr_factor'] = factor
+
+      lr_factors.append(param)
+  return lr_factors
 
 
 class Trainer(object):
@@ -288,12 +322,19 @@ class Trainer(object):
         return self._lr_scheduler
 
     def _build_optimizer(self):
-        params = list(
-            filter(
-                lambda p: p.requires_grad,
-                chain(self.model.parameters(), self.criterion.parameters()),
+        if self.cfg.optimization.lr_decay is not None:
+            params = get_decayed_param_groups(
+                chain(self.model.named_parameters(), self.criterion.named_parameters()),
+                lr=self.cfg.optimization.lr,
+                num_layers=self.cfg.optimization.lr_decay_layers,
+                lr_decay=self.cfg.optimization.lr_decay)
+        else:
+            params = list(
+                filter(
+                    lambda p: p.requires_grad,
+                    chain(self.model.parameters(), self.criterion.parameters()),
+                )
             )
-        )
 
         if self.is_fsdp and self.cfg.common.fp16:
             # FullyShardedDataParallel always uses MemoryEfficientFP16 wrapper,

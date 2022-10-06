@@ -636,6 +636,12 @@ class OptimizationConfig(FairseqDataclass):
             " (default is to skip it)."
         },
     )
+    lr_decay_layers: Optional[int] = field(
+        default=None,
+    )
+    lr_decay: Optional[float] = field(
+        default=None,
+    )
 
 
 @dataclass
